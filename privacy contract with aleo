@@ -1,0 +1,90 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+use ink_lang::contract;
+use ink_prelude::vec::Vec;
+use ink_storage::{
+    collections::HashMap as StorageHashMap,
+    traits::{PackedLayout, SpreadLayout},
+    Lazy,
+};
+
+#[ink_lang::contract(env = ink_env::DefaultEnvironment)]
+mod privacy_contract {
+    use super::*;
+
+    #[ink(storage)]
+    pub struct PrivacyContract {
+        owner: AccountId,
+        data: StorageHashMap<AccountId, Vec<u8>>,
+    }
+
+    #[ink(event)]
+    pub struct DataStored {
+        #[ink(topic)]
+        owner: AccountId,
+        data: Vec<u8>,
+    }
+
+    #[ink(event)]
+    pub struct DataAccessed {
+        #[ink(topic)]
+        owner: AccountId,
+        requester: AccountId,
+    }
+
+    impl PrivacyContract {
+        #[ink(constructor)]
+        pub fn new() -> Self {
+            Self {
+                owner: Self::env().caller(),
+                data: StorageHashMap::new(),
+            }
+        }
+
+        #[ink(message)]
+        pub fn store_data(&mut self, data: Vec<u8>) {
+            let caller = self.env().caller();
+            self.data.insert(caller, data.clone());
+            self.env().emit_event(DataStored {
+                owner: caller,
+                data: data,
+            });
+        }
+
+        #[ink(message)]
+        pub fn access_data(&self, owner: AccountId) -> Option<Vec<u8>> {
+            let caller = self.env().caller();
+            if caller != owner {
+                self.env().emit_event(DataAccessed {
+                    owner: owner,
+                    requester: caller,
+                });
+            }
+            self.data.get(&owner).cloned()
+        }
+
+        #[ink(message)]
+        pub fn get_owner(&self) -> AccountId {
+            self.owner
+        }
+    }
+
+    #[cfg(not(feature = "ink-experimental-engine"))]
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink_env::{
+            test,
+            DefaultEnvironment,
+        };
+
+        #[test]
+        fn store_and_access_data() {
+            let mut contract = PrivacyContract::new();
+            let caller = test::default_accounts::<DefaultEnvironment>().caller;
+            let data = b"secret_data".to_vec();
+            contract.store_data(data.clone());
+            assert_eq!(contract.access_data(caller), Some(data));
+        }
+    }
+}
